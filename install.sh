@@ -56,7 +56,7 @@ if [ "$action" = uninstall ]; then
     userdel uscn >/dev/null 2>&1 || true
     echo "已卸载，并删除了节点身份与数据。"
   else
-    echo "已卸载程序；节点身份与数据保留在 $ETC 和 $STATE。"
+    echo "已卸载程序；节点身份与数据保留在 ${ETC} 和 ${STATE}。"
   fi
   exit 0
 fi
