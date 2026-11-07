@@ -47,6 +47,8 @@ stop_legacy_https() {
 
 if [ "$action" = uninstall ]; then
   systemctl disable --now uscn-https-restart.path uscn-https.service uscn-runtime.service >/dev/null 2>&1 || true
+  # S-R100: remove the GPU relay port rule (TCP 22000-22999) the node added.
+  if [ -x "$BIN/uscn-runtime" ]; then "$BIN/uscn-runtime" --gpu-relay-firewall=close || true; fi
   for u in $units; do rm -f "$UNITDIR/$u"; done
   systemctl daemon-reload
   stop_legacy_https
@@ -140,6 +142,10 @@ Group=uscn
 WorkingDirectory=/var/lib/uscn
 EnvironmentFile=/var/lib/uscn/runtime.env
 LoadCredential=custody-key:/etc/uscn/custody-master.key
+# S-R100: as root ("+"), open GPU relay TCP 22000-22999 in the local firewall
+# when GPU relay is enabled; a failure, or an older program that rejects the
+# flag after a rollback, never blocks the start ("-").
+ExecStartPre=-+/opt/uscn/bin/uscn-runtime --gpu-relay-firewall=open
 ExecStart=/usr/bin/env USCN_CUSTODY_KEY_FILE=${CREDENTIALS_DIRECTORY}/custody-key /opt/uscn/bin/uscn-runtime
 Restart=always
 RestartSec=5
@@ -223,3 +229,4 @@ done
 systemctl is-active --quiet uscn-runtime.service || die "节点程序未能启动；查看：journalctl -u uscn-runtime -n 50"
 echo "完成：节点程序 ${version:0:7} 已运行。公网 HTTPS 证书约 1 分钟内签发，之后中心自动核验。"
 echo "回到后台节点列表，看到“在线”后点击“启用”。"
+echo "如本节点用于 GPU 中转：本机防火墙的 TCP 22000-22999 已由节点程序自动放行；云服务商的安全组仍需你在云控制台放行入站 TCP 22000-22999。"
