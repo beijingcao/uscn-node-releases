@@ -72,11 +72,29 @@ install -d -m 0700 -o uscn -g uscn "$ETC/private" "$STATE" "$STATE/custody" "$ST
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"; rm -f "$STATE/.enroll-code"' EXIT
 if [ -f "$STATE/identity.json" ]; then
-  [ -z "$code" ] || die "本机已登记过节点；修复安装请去掉 --code。要换成新节点，先在后台删除旧节点，再运行 --uninstall --purge"
   cred=$(sed -n 's/.*"credential": *"\([A-Za-z0-9_-]\{43\}\)".*/\1/p' "$STATE/identity.json")
   [ -n "$cred" ] || die "本机身份文件无法读取"
   printf 'Authorization: Bearer %s\n' "$cred" > "$tmp/auth"
-else
+  chmod 600 "$tmp/auth"
+  # S-R107: the center answers NODE_ARCHIVED when this identity belongs to an
+  # archived node. An archived identity is never restored: the server enrolls
+  # again as a new node and nothing of the old node (identity, runtime data,
+  # credential custody) is carried over.
+  curl -sS --proto =https --connect-timeout 20 --max-time 60 -H @"$tmp/auth" -o "$tmp/identity-status" \
+    "$API/desired-state" >/dev/null 2>&1 || true
+  if grep -q '"NODE_ARCHIVED"' "$tmp/identity-status" 2>/dev/null; then
+    echo "该服务器曾登记为已归档节点，将作为新节点重新登记"
+    [ -n "$code" ] || die "请在后台为本服务器新增节点，复制含连接码（--code）的安装命令后重新运行"
+    systemctl stop uscn-https.service uscn-runtime.service >/dev/null 2>&1 || true
+    rm -f "$STATE/identity.json" "$STATE/agent.json" "$STATE/setup.json" "$STATE/runtime.env" "$STATE"/runtime.sqlite*
+    rm -rf "$STATE/custody"
+    install -d -m 0700 -o uscn -g uscn "$STATE/custody"
+    rm -f "$ETC/custody-master.key"
+  else
+    [ -z "$code" ] || die "本机已登记过节点；修复安装请去掉 --code。要换成新节点，先在后台删除旧节点，再运行 --uninstall --purge"
+  fi
+fi
+if [ ! -f "$STATE/identity.json" ]; then
   [ -n "$code" ] || die "请复制后台生成的完整安装命令（含 --code）"
   printf 'X-USCN-Enrollment-Code: %s\n' "$code" > "$tmp/auth"
 fi
